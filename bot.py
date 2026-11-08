@@ -228,7 +228,7 @@ async def order_phone(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(phone=phone)
     data = await state.get_data()
-    total = data["price"] * data["qty"] + data["delivery_cost"]
+    total = data["price"] * data["qty"] + (data["delivery_cost"] or 0)
     await state.update_data(total=total)
     await state.set_state(OrderSG.confirm)
     await message.answer(
@@ -247,7 +247,8 @@ async def order_confirm(cq: CallbackQuery, state: FSMContext) -> None:
                             data["address"], data["phone"], data["total"])
     await state.clear()
     await cq.answer()
-    await cq.message.answer(texts.payment(order_id, data["total"]),
+    await cq.message.answer(texts.payment(order_id, data["total"],
+                                          tariff=data["delivery_cost"] is None),
                             reply_markup=kb.PAID)
     await notify_admin(texts.admin_order(db.get_order(order_id)))
 

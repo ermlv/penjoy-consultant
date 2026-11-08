@@ -53,7 +53,7 @@ PRICE_SET = 2700       # комплект №1–№3 (вместо 2970)
 
 DELIVERY = {
     "pickup": {"title": "Самовывоз (МО)", "cost": 0},
-    "courier": {"title": "Курьер по МО", "cost": 0},
+    "courier": {"title": "Курьер по МО (по тарифу)", "cost": None},
     "cdek": {"title": "СДЭК/Почта по РФ", "cost": 250},
 }
 

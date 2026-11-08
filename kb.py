@@ -50,7 +50,12 @@ QTY = InlineKeyboardMarkup(inline_keyboard=[
 def delivery_kb():
     b = InlineKeyboardBuilder()
     for key, d in C.DELIVERY.items():
-        price = "" if d["cost"] == 0 else f" — {d['cost']}₽"
+        if d["cost"] is None:
+            price = " — по тарифу"
+        elif d["cost"] == 0:
+            price = ""
+        else:
+            price = f" — {d['cost']}₽"
         b.button(text=f"{d['title']}{price}", callback_data=f"deliv:{key}")
     b.adjust(1)
     return b.as_markup()
