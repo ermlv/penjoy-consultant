@@ -92,6 +92,16 @@ async def deliver_lead(message: Message, first_name: str, segment: str = "new") 
     await message.answer(texts.lead_delivered(first_name))
 
 
+async def restart_order(message: Message, state: FSMContext) -> None:
+    """Заказ потерялся (бот перезапускался) — предложить начать заново."""
+    await state.clear()
+    await state.set_state(OrderSG.issue)
+    await message.answer(
+        "Похоже, бот обновлялся и заказ потерялся. Давайте заново 🙂",
+        reply_markup=kb.issue_kb(),
+    )
+
+
 # ------------------------------------------------------------- /start
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, command: CommandObject) -> None:
@@ -213,8 +223,11 @@ async def order_delivery(cq: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(OrderSG.name, F.text)
 async def order_name(message: Message, state: FSMContext) -> None:
-    await state.update_data(name=message.text.strip())
     data = await state.get_data()
+    if "price" not in data:
+        await restart_order(message, state)
+        return
+    await state.update_data(name=message.text.strip())
     if data["delivery_key"] == "pickup":
         await state.update_data(address="самовывоз (МО)")
         await state.set_state(OrderSG.phone)
@@ -226,6 +239,9 @@ async def order_name(message: Message, state: FSMContext) -> None:
 
 @router.message(OrderSG.address, F.text)
 async def order_address(message: Message, state: FSMContext) -> None:
+    if "price" not in await state.get_data():
+        await restart_order(message, state)
+        return
     await state.update_data(address=message.text.strip())
     await state.set_state(OrderSG.phone)
     await message.answer(texts.ASK_PHONE)
@@ -237,8 +253,11 @@ async def order_phone(message: Message, state: FSMContext) -> None:
     if not re.search(r"\d{6,}", phone):
         await message.answer("Похоже, в номере мало цифр. Пришлите телефон ещё раз.")
         return
-    await state.update_data(phone=phone)
     data = await state.get_data()
+    if "price" not in data:
+        await restart_order(message, state)
+        return
+    await state.update_data(phone=phone)
     total = data["price"] * data["qty"] + (data["delivery_cost"] or 0)
     await state.update_data(total=total)
     await state.set_state(OrderSG.confirm)
@@ -253,6 +272,10 @@ async def order_phone(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "confirm:yes", OrderSG.confirm)
 async def order_confirm(cq: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
+    if "price" not in data:
+        await cq.answer("Заказ устарел")
+        await restart_order(cq.message, state)
+        return
     order_id = db.add_order(cq.from_user.id, data["issue"], data["qty"],
                             data["delivery_title"], data["name"],
                             data["address"], data["phone"], data["total"])
@@ -394,6 +417,22 @@ async def cmd_export(message: Message) -> None:
     await message.answer_document(
         BufferedInputFile(buf_orders.getvalue().encode(), "orders.csv"),
         caption="Заказы")
+
+
+# ------------------------------------------- страховка от «мёртвых» кнопок
+@router.callback_query(F.data.startswith(("order_issue:", "qty:", "deliv:", "confirm:")))
+async def order_stale(cq: CallbackQuery, state: FSMContext) -> None:
+    """Кнопка заказа из старого диалога: состояние потеряно (перезапуск бота)."""
+    await cq.answer("Кнопка устарела — начнём заново")
+    await restart_order(cq.message, state)
+
+
+@router.callback_query()
+async def any_callback(cq: CallbackQuery) -> None:
+    """Любая неизвестная кнопка: ответ обязателен, иначе Telegram крутит спиннер."""
+    await cq.answer("Кнопка устарела")
+    await cq.message.answer("Эта кнопка больше не активна. Вот меню 👇",
+                            reply_markup=kb.MENU)
 
 
 # --------------------------------------------------- свободный текст → админ
