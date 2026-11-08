@@ -13,7 +13,8 @@ import time
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.filters import (BaseFilter, Command, CommandObject, CommandStart,
+                             StateFilter)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (BufferedInputFile, CallbackQuery, FSInputFile,
@@ -84,8 +85,8 @@ async def deliver_lead(message: Message, first_name: str) -> None:
 
 # ------------------------------------------------------------- /start
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
-    args = (message.command.args or "").strip().lower()
+async def cmd_start(message: Message, state: FSMContext, command: CommandObject) -> None:
+    args = (command.args or "").strip().lower()
     source = args if args in ("avito", "vk", "tg", "site", "ref") else "unknown"
     db.upsert_user(message.from_user.id, message.from_user.username or "",
                    message.from_user.first_name or "", source)
@@ -112,11 +113,17 @@ async def cb_later(cq: CallbackQuery) -> None:
 
 
 # --------------------------------------------------- электронные номера
-@router.message(StateFilter(None),
-                re.compile(r"^\s*(?:номер|№)\s*([1-8])\s*$", re.IGNORECASE))
+class IssueRequest(BaseFilter):
+    """Сообщение «номер N» или «№N» — запрос электронного номера."""
+    ISSUE_RE = re.compile(r"^\s*(?:номер|№)\s*([1-8])\s*$", re.IGNORECASE)
+
+    async def __call__(self, message: Message) -> bool:
+        return bool(message.text and self.ISSUE_RE.match(message.text))
+
+
+@router.message(StateFilter(None), IssueRequest())
 async def issue_request(message: Message) -> None:
-    n = re.match(r"^\s*(?:номер|№)\s*([1-8])\s*$",
-                 message.text, re.IGNORECASE).group(1)
+    n = IssueRequest.ISSUE_RE.match(message.text).group(1)
     await send_pdf(message, f"issue{n}.pdf", f"PENJOY №{n} — PDF")
 
 
