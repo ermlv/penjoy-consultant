@@ -76,10 +76,19 @@ async def notify_admin(text: str) -> None:
         log.exception("Не смог написать админу (ADMIN_ID верный?)")
 
 
-async def deliver_lead(message: Message, first_name: str) -> None:
-    """Шаг 2 воронки: гайд + электронный №1."""
+SEGMENT_GUIDE = {
+    "new": ("karta-vybora.pdf", "Бонус: «Карта выбора ручки» — распечатайте и несите в магазин"),
+    "existing": ("faq.pdf", "Бонус: «Перьевая ручка: вопросы и ответы» — уход, перья, чернила"),
+    "gift": ("podarok.pdf", "Бонус: «Ручка в подарок» — как выбрать и не промахнуться"),
+}
+
+
+async def deliver_lead(message: Message, first_name: str, segment: str = "new") -> None:
+    """Шаг 2 воронки: гайд + электронный №1 + бонус-гайд по сегменту."""
     await send_pdf(message, "gayd.pdf", "Гайд «Как выбрать первую перьевую»")
     await send_pdf(message, "issue1.pdf", "PENJOY №1 (2018) — PDF")
+    bonus = SEGMENT_GUIDE.get(segment) or SEGMENT_GUIDE["new"]
+    await send_pdf(message, bonus[0], bonus[1])
     await message.answer(texts.lead_delivered(first_name))
 
 
@@ -101,7 +110,7 @@ async def cb_segment(cq: CallbackQuery, state: FSMContext) -> None:
     segment = cq.data.split(":")[1]
     db.set_user_field(cq.from_user.id, "segment", segment)
     await cq.answer()
-    await deliver_lead(cq.message, cq.from_user.first_name or "")
+    await deliver_lead(cq.message, cq.from_user.first_name or "", segment)
     line, total = stock_line()
     await cq.message.answer(texts.print_offer(line, total), reply_markup=kb.OFFER)
 
@@ -131,7 +140,9 @@ async def issue_request(message: Message) -> None:
 @router.message(StateFilter(None), F.text == "📖 Забрать гайд")
 async def menu_guide(message: Message) -> None:
     await message.answer(texts.GUIDE_RESEND)
-    await deliver_lead(message, message.from_user.first_name or "")
+    user = db.get_user(message.from_user.id)
+    await deliver_lead(message, message.from_user.first_name or "",
+                       (user or {}).get("segment") or "new")
 
 
 @router.message(StateFilter(None), F.text == "📦 Заказать печатный")
